@@ -29,34 +29,6 @@ export default function DemoCustomClassify({ data }) {
     const [result, setResult] = useState(null);
     const [isVideoReady, setVideoReady] = useState(false);
 
-    useEffect(() => {
-        const enableModuleAndWebCam = async () => {
-            const video = videoRef.current;
-
-            try {
-                const webcamStream = await navigator.mediaDevices.getUserMedia({
-                    video: true,
-                });
-
-                video.srcObject = webcamStream;
-
-                await video.play();
-
-                const net = await MobileNet.load();
-
-                netRef.current = net;
-
-                setTfReady(true);
-            } catch (error) {
-                console.error("無法啟用網路攝像頭:", error);
-            }
-        };
-
-        enableModuleAndWebCam();
-
-        return () => {};
-    }, [videoRef.current]);
-
     const getNormalizedLogitsFromWebcam = () => {
         return tf.tidy(() => {
             // Make a prediction through mobilenet and flatten to a vector.
@@ -183,6 +155,48 @@ export default function DemoCustomClassify({ data }) {
         setResult(topClass);
     };
 
+    useEffect(() => {
+        const enableModuleAndWebCam = async () => {
+            const video = videoRef.current;
+
+            try {
+                const webcamStream = await navigator.mediaDevices.getUserMedia({
+                    video: true,
+                });
+
+                video.srcObject = webcamStream;
+
+                await video.play();
+
+                const net = await MobileNet.load();
+
+                netRef.current = net;
+
+                setTfReady(true);
+            } catch (error) {
+                console.error("無法啟用網路攝像頭:", error);
+            }
+        };
+
+        enableModuleAndWebCam();
+
+        return () => {};
+    }, [videoRef.current]);
+
+    useEffect(() => {
+        if (!tfReady) {
+            return;
+        }
+
+        const interval = setInterval(() => {
+            predict();
+        }, 1000);
+
+        return () => {
+            clearInterval(interval);
+        };
+    }, [tfReady]);
+
     const isReady = tfReady && isVideoReady;
 
     return (
@@ -230,7 +244,7 @@ export default function DemoCustomClassify({ data }) {
                         }}
                     />
                 </div>
-                {/* {result && <div style={{ background: 'green', color: 'white'}}>預測結果是： {result}</div>} */}
+                {result && <div style={{ background: 'green', color: 'white'}}>預測結果是： {result}</div>}
                 <video
                     ref={videoRef}
                     autoPlay
