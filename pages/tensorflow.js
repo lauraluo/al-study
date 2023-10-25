@@ -90,7 +90,6 @@ export default function DemoCustomClassify({ data }) {
                 );
             }
 
-
             Object.keys(dataset).forEach((key) => {
                 console.log(key);
                 console.log(dataset[key].arraySync());
@@ -106,13 +105,16 @@ export default function DemoCustomClassify({ data }) {
         // const datasetCollectionTensor = tf.tensor(Object.keys(datasetRef.current).map((key) => {
         //     return datasetRef.current[key].arraySync();
         // }));
+        const dataset = datasetRef.current;
 
-        const datasetCollectionTensor = tf.tensor2d();
+        let datasetCollectionTensor = null;
 
         Object.keys(dataset).forEach((key) => {
-            console.log(key);
-
-            console.log(datasetCollectionTensor.arraySync());
+            if (!datasetCollectionTensor) {
+                datasetCollectionTensor = dataset[key].expandDims(0);
+            } else {
+                datasetCollectionTensor.concat(dataset[key].expandDims(0), 0);
+            }
         });
 
         console.log(datasetCollectionTensor.arraySync());
