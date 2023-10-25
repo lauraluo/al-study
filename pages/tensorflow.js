@@ -21,10 +21,12 @@ export default function DemoCustomClassify({ data }) {
     const videoRef = useRef(null);
     const canvasRef = useRef(null);
     const netRef = useRef(null);
-
+    const [kValue, setK] = useState(3);
+    const totalExamplesClassRef = useRef([]);
     const datasetRef = useRef({});
     const webcamStreamRef = useRef(null);
     const [tfReady, setTfReady] = useState(false);
+    const [result, setResult] = useState(null);
     const [isVideoReady, setVideoReady] = useState(false);
 
     useEffect(() => {
@@ -89,43 +91,96 @@ export default function DemoCustomClassify({ data }) {
                     dataset[classId].concat(logits2d, 0),
                 );
             }
-
-            Object.keys(dataset).forEach((key) => {
-                console.log(key);
-                console.log(dataset[key].arraySync());
-            });
         });
+        totalExamplesClassRef.current.push(classId);
     };
 
-    const predict = () => {
-        if (!isVideoReady || !tfReady || !Object.keys(datasetRef.current).length) {
+    const topk = (values, k) => {
+        /**
+         * Given an unsorted array of values, compute the top k indices and values.
+         */
+        const valuesAndIndices = [];
+        for (let i = 0; i < values.length; i++) {
+            valuesAndIndices.push({ value: values[i], index: i });
+        }
+        valuesAndIndices.sort((a, b) => {
+            return b.value - a.value;
+        });
+        const topkValues = new Float32Array(k);
+        const topkIndices = new Int32Array(k);
+        for (let i = 0; i < k; i++) {
+            topkValues[i] = valuesAndIndices[i].value;
+            topkIndices[i] = valuesAndIndices[i].index;
+        }
+        return { values: topkValues, indices: topkIndices };
+    };
+
+    const predict = async () => {
+        if (
+            !isVideoReady ||
+            !tfReady ||
+            !Object.keys(datasetRef.current).length
+        ) {
             return;
         }
 
-        // const datasetCollectionTensor = tf.tensor(Object.keys(datasetRef.current).map((key) => {
-        //     return datasetRef.current[key].arraySync();
-        // }));
-        const dataset = datasetRef.current;
+        const similarities = tf.tidy(() => {
+            const dataset = datasetRef.current;
 
-        let datasetCollectionTensor = null;
+            let datasetCollectionTensor = null;
 
-        Object.keys(dataset).forEach((key) => {
-            if (!datasetCollectionTensor) {
-                datasetCollectionTensor = dataset[key].expandDims(0);
-            } else {
-                datasetCollectionTensor.concat(dataset[key].expandDims(0), 0);
+            Object.keys(dataset).forEach((key) => {
+                if (!datasetCollectionTensor) {
+                    datasetCollectionTensor = tf.keep(dataset[key]);
+                } else {
+                    datasetCollectionTensor = tf.keep(
+                        datasetCollectionTensor.concat(dataset[key], 0),
+                    );
+                }
+            });
+
+            // Get the logits from the webcam and reshape it to a matrix of [1, 1000].
+            const logits = getNormalizedLogitsFromWebcam().expandDims(1);
+            // Compte the matrix multiply of the dataset and the logits to compute similarities.
+            // This is a vector of shape [N].
+            return datasetCollectionTensor.matMul(logits);
+        });
+
+        const values = await similarities.data();
+        const expSize = totalExamplesClassRef.current.length;
+        // Compute the top k indices and values in our similarities vector.
+        const top = topk(values, Math.min(expSize, kValue));
+        // Compute the winner.
+        const topKClassSet = [];
+        const topKClassSum = {};
+
+        top.indices.forEach((expIndex) => {
+            topKClassSet.push(totalExamplesClassRef.current[expIndex]);
+        });
+
+        topKClassSet.forEach((classId) => {
+            topKClassSum[classId] = topKClassSum[classId]
+                ? topKClassSet[classId] + 1
+                : 1;
+        });
+
+        let topClass = null;
+        let maxFrequency = 0;
+
+        Object.keys(topKClassSum).forEach((classId) => {
+            const frequency = topKClassSum[classId];
+
+            if (frequency > maxFrequency) {
+                topClass = classId;
+                maxFrequency = frequency;
             }
         });
 
-        console.log(datasetCollectionTensor.arraySync());
-        // const similarities = tf.tidy(() => {
-        //     // Get the logits from the webcam and reshape it to a matrix of [1, 1000].
-        //     const logits = getNormalizedLogitsFromWebcam().expandDims(1);
-        //     // Compte the matrix multiply of the dataset and the logits to compute similarities.
-        //     // This is a vector of shape [N].
+        console.log(topClass);
 
-        //     return datasetConcatenated.matMul(logits);
-        // });
+        similarities.dispose();
+
+        setResult(topClass);
     };
 
     const isReady = tfReady && isVideoReady;
@@ -150,12 +205,32 @@ export default function DemoCustomClassify({ data }) {
             >
                 加入 SAD 的樣本
             </button>
-            <button disabled={!isReady} onClick={() => {
-                predict();
-            }}>預測</button>
+            <button
+                disabled={!isReady}
+                onClick={() => {
+                    predict();
+                }}
+            >
+                預測
+            </button>
             <hr />
             <div>
                 {isReady ? <div>截入完成</div> : <div>載入中...</div>}
+                <div>
+                    K 值：
+                    <span>{kValue}</span>{" "}
+                    <input
+                        type="range"
+                        min="1"
+                        max="11"
+                        value={kValue}
+                        step={1}
+                        onChange={(e) => {
+                            setK(e.target.value);
+                        }}
+                    />
+                </div>
+                {/* {result && <div style={{ background: 'green', color: 'white'}}>預測結果是： {result}</div>} */}
                 <video
                     ref={videoRef}
                     autoPlay
